@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QImage, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from .core import Project, Shape
+from .icons import icon
 
 
 def clock_text(seconds):
@@ -69,12 +70,17 @@ class Canvas(QWidget):
 
     def paintEvent(self, _):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#101820"))
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillRect(self.rect(), QColor("#0b111a"))
+        painter.setPen(QPen(QColor("#263447"), 1))
+        painter.setBrush(QColor("#0c141f"))
+        painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 12, 12)
         if self.image.isNull():
+            center = self.rect().center()
+            painter.drawPixmap(center.x() - 32, center.y() - 82, icon("video", "#77acff", 64).pixmap(64, 64))
             painter.setPen(QColor("#91a5b7"))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
-                             "打开视频或图片文件夹\n\n检测手部 → 选择时间段 → 剔除无关手 → 赋动作标签")
+            painter.drawText(self.rect().adjusted(20, 52, -20, 0), Qt.AlignmentFlag.AlignCenter,
+                             "打开视频或图片目录，开始标注\n\n自动检测  /  选段删手  /  批量赋动作")
             return
         painter.drawImage(self.image_rect(), self.image)
         if self.divider is not None:
@@ -267,7 +273,11 @@ class Timeline(QWidget):
 
     def paintEvent(self, _):
         p = QPainter(self)
-        p.fillRect(self.rect(), QColor("#18232e"))
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.fillRect(self.rect(), QColor("#0b111a"))
+        p.setPen(QPen(QColor("#263447"), 1))
+        p.setBrush(QColor("#111d2b"))
+        p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 9, 9)
         if self.project is None:
             return
         p.fillRect(QRectF(16, 36, self.width() - 32, 24), QColor("#34414f"))
@@ -307,6 +317,8 @@ class Timeline(QWidget):
         p.setPen(QPen(QColor("#72b7ff"), 2))
         if self.view_start <= self.current <= self.view_end:
             p.drawLine(QPointF(self.x_for(self.current), 16), QPointF(self.x_for(self.current), 65))
+            p.setBrush(QColor("#72b7ff"))
+            p.drawEllipse(QPointF(self.x_for(self.current), 18), 3, 3)
         p.setPen(QColor("#d9e5ed"))
         p.drawText(16, 15, "时间轴  ·  左键拖动预览  ·  Shift + 拖动选段并预览")
 

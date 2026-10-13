@@ -28,7 +28,7 @@ def window(app, tmp_path):
         frame = project.frame(i)
         frame.shapes = [Shape([10 + i, 10, 45 + i, 60]), Shape([140, 10, 180, 60])]
         frame.processed = True
-    widget = MainWindow()
+    widget = MainWindow(recovery_directory=tmp_path / "recovery")
     widget.set_project(project)
     widget.recovery_path = tmp_path / "recovery.handproj"
     widget.show()

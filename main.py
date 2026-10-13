@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import tempfile
 
 
 def main():
@@ -17,7 +18,8 @@ def main():
     from hand_anno.app import MainWindow, create_application
 
     app = create_application()
-    window = MainWindow()
+    preview_recovery = tempfile.TemporaryDirectory(prefix="handflow-preview-") if args.screenshot else None
+    window = MainWindow(recovery_directory=preview_recovery.name if preview_recovery else None)
     if args.source:
         if args.source.endswith(".handproj"):
             window.load_project(args.source)
@@ -30,7 +32,11 @@ def main():
             window.close()
             app.quit()
         QTimer.singleShot(350, capture)
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        if preview_recovery:
+            preview_recovery.cleanup()
 
 
 if __name__ == "__main__":

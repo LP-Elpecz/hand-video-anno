@@ -7,42 +7,21 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QThread, QTimer, Qt, Signal, Slot
+from PySide6.QtCore import QSize, QThread, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QFont, QFontDatabase, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow,
     QMessageBox, QProgressBar, QPushButton, QScrollArea, QScrollBar, QSlider, QSpinBox,
-    QSizePolicy, QSplitter, QVBoxLayout, QWidget,
+    QSizePolicy, QSplitter, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .core import (Cancelled, EditHistory, FrameReader, Project, SamplingSegment,
                    export_project, side_indices, track_reference)
 from .detector import DEFAULT_MODEL, ROOT, detect_project
 from .widgets import Canvas, Timeline, clock_text
-
-
-STYLE = """
-QMainWindow, QWidget { background: #f3f6f9; color: #233548; font-size: 13px; }
-QGroupBox { background: white; border: 1px solid #d9e2e9; border-radius: 8px; margin-top: 16px; padding: 12px 10px 9px; font-weight: 600; }
-QGroupBox::title { subcontrol-origin: margin; left: 12px; top: 1px; padding: 0 5px; }
-QGroupBox QWidget { background: transparent; }
-QPushButton { background: #fff; border: 1px solid #cbd8e2; border-radius: 5px; padding: 7px 10px; }
-QPushButton:hover { background: #e8f1fa; border-color: #6aa5d9; }
-QPushButton:disabled { color: #9ba7b2; background: #edf0f4; }
-QPushButton[primary="true"] { background: #1968a4; color: white; border-color: #1968a4; font-weight: 600; }
-QPushButton[danger="true"] { color: #af3b3b; border-color: #e4b9b9; }
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox { background: white; border: 1px solid #cbd8e2; border-radius: 4px; padding: 5px; min-height: 20px; }
-QListWidget { background: #f8fafc; border: 1px solid #d9e2e9; border-radius: 4px; }
-QProgressBar { border: 1px solid #d9e2e9; border-radius: 4px; text-align: center; background: #e7eef4; }
-QProgressBar::chunk { background: #3b8abc; border-radius: 3px; }
-QToolBar { background: white; border-bottom: 1px solid #d9e2e9; spacing: 8px; padding: 8px; }
-QToolButton { background: transparent; border-radius: 5px; padding: 6px 9px; }
-QToolButton:hover { background: #e8f1fa; }
-QScrollArea { border: none; }
-QSlider::groove:horizontal { height: 5px; background: #d3dee7; border-radius: 2px; }
-QSlider::handle:horizontal { width: 15px; margin: -5px 0; background: #1968a4; border-radius: 7px; }
-"""
+from .icons import button_icon, icon
+from .theme import STYLE
 
 
 class Worker(QThread):
@@ -65,31 +44,50 @@ class Worker(QThread):
             self.failed.emit(f"{type(error).__name__}: {error}")
 
 
-class CollapsibleGroup(QGroupBox):
+class CollapsibleGroup(QWidget):
     """Click the title to collapse setup controls while editing annotations."""
     def __init__(self, title):
         super().__init__()
+        self.setObjectName("sectionCard")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.base_title = title
         self.collapsed = False
-        self.setTitle("−  " + title)
+        number, name = title.split(maxsplit=1)
+        self.header = QToolButton()
+        self.header.setObjectName("sectionTitle")
+        self.header.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.header.setText(name)
+        self.header.setIcon(icon({"1": "clock", "2": "timeline", "3": "scan", "4": "hand", "5": "tag"}[number], "#91b7ec", 18))
+        self.header.setIconSize(QSize(18, 18))
+        self.header.clicked.connect(lambda: self.set_collapsed(not self.collapsed))
+        self.toggle = QToolButton()
+        self.toggle.setObjectName("sectionToggle")
+        self.toggle.setIcon(icon("chevron-down", size=16))
+        self.toggle.setToolTip("展开 / 收起")
+        self.toggle.clicked.connect(lambda: self.set_collapsed(not self.collapsed))
+        badge = QLabel(f"{int(number):02d}")
+        badge.setObjectName("sectionNumber")
+        badge.setFixedSize(25, 25)
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        heading = row(badge, self.header, self.toggle)
+        heading.layout().setStretch(1, 1)
         self.body = QWidget()
+        self.body.setObjectName("sectionBody")
         root = QVBoxLayout(self)
+        root.setContentsMargins(12, 11, 12, 11)
+        root.setSpacing(10)
+        root.addWidget(heading)
         root.addWidget(self.body)
         self.content = QVBoxLayout(self.body)
         self.content.setContentsMargins(0, 0, 0, 0)
+        self.content.setSpacing(8)
 
     def set_collapsed(self, collapsed):
         self.collapsed = collapsed
         self.body.setVisible(not collapsed)
-        self.setTitle(("+  " if collapsed else "−  ") + self.base_title)
-        self.setMinimumHeight(32 if collapsed else 0)
-        self.setMaximumHeight(32 if collapsed else 16777215)
-
-    def mousePressEvent(self, event):
-        if event.position().y() < 28:
-            self.set_collapsed(not self.collapsed)
-        else:
-            super().mousePressEvent(event)
+        self.toggle.setIcon(icon("chevron-right" if collapsed else "chevron-down", size=16))
+        self.setMinimumHeight(48 if collapsed else 0)
+        self.setMaximumHeight(48 if collapsed else 16777215)
 
 
 def spin(value=0.0, maximum=100000, minimum=0.0, decimals=3):
@@ -103,15 +101,20 @@ def spin(value=0.0, maximum=100000, minimum=0.0, decimals=3):
 
 def row(*widgets):
     container = QWidget()
+    container.setObjectName("controlRow")
     layout = QHBoxLayout(container)
     layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(8)
     for widget in widgets:
         layout.addWidget(widget)
     return container
 
 
 def button(text, callback, primary=False, danger=False):
-    widget = QPushButton(text)
+    widget = QPushButton(text.split(" · ")[0])
+    widget.setToolTip(text)
+    widget.setIcon(icon(button_icon(text), "#0b1b31" if primary else "#f49b9c" if danger else "#abc6e7", 17))
+    widget.setIconSize(QSize(17, 17))
     widget.clicked.connect(callback)
     if primary:
         widget.setProperty("primary", True)
@@ -121,9 +124,10 @@ def button(text, callback, primary=False, danger=False):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, recovery_directory=None):
         super().__init__()
-        self.setWindowTitle("手部动作标注工作台")
+        self.setWindowTitle("HandFlow · 手部动作标注工作台")
+        self.setWindowIcon(icon("logo", size=64))
         self.resize(1500, 1000)
         self.project = None
         self.history = None
@@ -132,6 +136,7 @@ class MainWindow(QMainWindow):
         self.position = 0
         self.project_path = None
         self.recovery_path = None
+        self.recovery_directory = Path(recovery_directory) if recovery_directory is not None else ROOT / "projects"
         self.reference = None
         self.track = None
         self.worker = None
@@ -152,6 +157,15 @@ class MainWindow(QMainWindow):
     def _build_ui(self):
         toolbar = self.addToolBar("文件")
         toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(19, 19))
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        brand_icon = QLabel()
+        brand_icon.setPixmap(icon("logo", size=30).pixmap(QSize(30, 30)))
+        brand_name = QLabel("HandFlow")
+        brand_name.setObjectName("brandName")
+        brand = row(brand_icon, brand_name)
+        toolbar.addWidget(brand)
+        toolbar.addSeparator()
         self.file_actions = []
         for title, callback, shortcut in (
             ("打开视频", self.open_video, "Ctrl+O"), ("打开图片目录", self.open_images, None),
@@ -160,36 +174,62 @@ class MainWindow(QMainWindow):
             ("重做", self.redo, "Ctrl+Shift+Z"),
         ):
             action = QAction(title, self)
+            action.setIcon(icon({"打开视频": "video", "打开图片目录": "images", "打开项目": "folder", "保存项目": "save",
+                                 "导出数据集": "export", "撤销": "undo", "重做": "redo"}[title], "#9cb9df", 19))
             action.triggered.connect(callback)
             if shortcut:
                 action.setShortcut(QKeySequence(shortcut))
             toolbar.addAction(action)
+            if title == "导出数据集":
+                toolbar.widgetForAction(action).setProperty("primary", True)
             self.file_actions.append(action)
         toolbar.addSeparator()
-        toolbar.addAction("使用说明", self.show_help)
+        help_action = toolbar.addAction(icon("help", size=18), "使用说明", self.show_help)
+        toolbar.widgetForAction(help_action).setToolTip("操作流程与快捷键")
+        spacer = QWidget()
+        spacer.setObjectName("toolbarSpacer")
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        toolbar.addWidget(spacer)
+        local_badge = QLabel("本地工作台")
+        local_badge.setObjectName("brandNote")
+        toolbar.addWidget(local_badge)
         central = QWidget()
         main = QVBoxLayout(central)
-        main.setContentsMargins(16, 10, 16, 12)
-        self.source_label = QLabel("手部动作标注工作台  /  SOP 视频标注")
-        self.source_label.setStyleSheet("font-size: 18px; font-weight: 600; padding: 5px;")
+        main.setContentsMargins(20, 14, 20, 10)
+        main.setSpacing(8)
+        self.source_label = QLabel("手部动作标注工作台")
+        self.source_label.setObjectName("sourceTitle")
         main.addWidget(self.source_label)
         self.source_info = QLabel("选择素材，按时间段批量处理手框。所有操作在本地完成。")
+        self.source_info.setObjectName("sourceMeta")
         main.addWidget(self.source_info)
         splitter = QSplitter()
         left = QWidget()
         self.preview_panel = left
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 8, 0)
+        left_layout.setSpacing(7)
+        viewer_icon = QLabel()
+        viewer_icon.setPixmap(icon("video", "#8aaedb", 17).pixmap(QSize(17, 17)))
+        viewer_title = QLabel("帧预览")
+        viewer_title.setObjectName("viewerTitle")
+        self.preview_clock = QLabel("00:00.000")
+        self.preview_clock.setObjectName("frameClock")
+        self.hand_count_badge = QLabel("0 个手框")
+        self.hand_count_badge.setObjectName("handBadge")
+        viewer_heading = row(viewer_icon, viewer_title, self.preview_clock, self.hand_count_badge)
+        viewer_heading.layout().setStretch(1, 1)
+        left_layout.addWidget(viewer_heading)
         self.canvas = Canvas()
         self.canvas.selected_changed.connect(self._selection_changed)
         self.canvas.shapes_changed.connect(self._canvas_edited)
         left_layout.addWidget(self.canvas, 1)
         self.frame_info = QLabel("未打开素材")
-        self.frame_info.setStyleSheet("padding: 4px 0;")
+        self.frame_info.setObjectName("frameMeta")
         left_layout.addWidget(self.frame_info)
         self.frame_sampling_info = QLabel("本帧抽帧计划：未打开素材")
         self.frame_sampling_info.setWordWrap(True)
-        self.frame_sampling_info.setStyleSheet("background: #e8f1fa; color: #1968a4; border-radius: 4px; padding: 4px 7px;")
+        self.frame_sampling_info.setObjectName("samplingBadge")
         self.frame_sampling_info.setToolTip("按当前帧的时间确定抽帧计划。分段范围包含起点、不包含终点；未设置独立分段的区间使用默认 FPS。")
         left_layout.addWidget(self.frame_sampling_info)
         self.slider = QSlider(Qt.Orientation.Horizontal)
@@ -197,14 +237,22 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.slider)
         self.play_button = button("播放 · Space", self.toggle_play)
         self.draw_button = QCheckBox("补框 · R")
+        self.draw_button.setIcon(icon("draw", "#a2c2ec", 16))
         self.draw_button.toggled.connect(self._drawing_changed)
         self.speed = QComboBox()
         for text, value in (("0.5×", 0.5), ("1×", 1), ("2×", 2), ("4×", 4)):
             self.speed.addItem(text, value)
         self.speed.setCurrentIndex(1)
-        left_layout.addWidget(row(button("上一帧 · A", lambda: self.step(-1)), self.play_button,
-                                  button("下一帧 · D", lambda: self.step(1)), self.speed,
-                                  self.draw_button, button("删除所选框 · Del", self.delete_current)))
+        self.speed.setFixedWidth(76)
+        self.play_button.setProperty("primary", True)
+        self.play_button.setIcon(icon("play", "#0b1b31", 17))
+        transport = row(button("上一帧 · A", lambda: self.step(-1)), self.play_button,
+                        button("下一帧 · D", lambda: self.step(1)), self.speed,
+                        self.draw_button, button("删除所选框 · Del", self.delete_current))
+        transport.layout().insertStretch(5, 1)
+        for child in transport.findChildren(QPushButton):
+            child.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        left_layout.addWidget(transport)
         self.timeline = Timeline()
         self.timeline.seek.connect(self.seek_from_timeline)
         self.timeline.range_changed.connect(self.set_range)
@@ -215,18 +263,37 @@ class MainWindow(QMainWindow):
         self.timeline_scroll.valueChanged.connect(self.pan_timeline)
         left_layout.addWidget(self.timeline_scroll)
         self.timeline_view_info = QLabel("全览 · 滚轮缩放")
-        left_layout.addWidget(row(button("放大 +", lambda: self.timeline.zoom(2)),
-                                  button("缩小 −", lambda: self.timeline.zoom(0.5)),
-                                  button("全览", self.timeline.reset_view),
-                                  button("聚焦选段", self.focus_timeline_range), self.timeline_view_info))
+        self.timeline_view_info.setObjectName("viewInfo")
+        zoom_controls = row(button("放大 +", lambda: self.timeline.zoom(2)),
+                            button("缩小 −", lambda: self.timeline.zoom(0.5)),
+                            button("全览", self.timeline.reset_view),
+                            button("聚焦选段", self.focus_timeline_range), self.timeline_view_info)
+        zoom_controls.layout().insertStretch(4, 1)
+        for child in zoom_controls.findChildren(QPushButton):
+            child.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        left_layout.addWidget(zoom_controls)
         self.timeline.view_changed.connect(self.timeline_view_changed)
-        left_layout.addWidget(QLabel("时间轴：绿色 = 1 个手框；黄色 = 2 个及以上手框；灰色 = 空框 / 未检测；蓝色横条 = 分段抽帧设置。"))
+        legend = QLabel("● 单手    ● 多手    ● 空框 / 未检测    ━ 分段抽帧设置")
+        legend.setText('<span style="color:#52dab1">● 单手</span>　 <span style="color:#f4c36b">● 多手</span>　 '
+                       '<span style="color:#8c9bae">● 空框 / 未检测</span>　 <span style="color:#72b7ff">━ 分段抽帧设置</span>')
+        legend.setProperty("role", "hint")
+        left_layout.addWidget(legend)
         self.summary = QLabel("当前抽帧 0  ·  已检测 / 编辑 0  ·  保留框 0  ·  待赋动作框 0")
-        left_layout.addWidget(self.summary)
+        self.summary.setObjectName("summary")
         self.box_list = QListWidget()
-        self.box_list.setMaximumHeight(105)
+        self.box_list.setMaximumHeight(76)
         self.box_list.currentRowChanged.connect(self._list_selected)
+        self.box_list_toggle = QToolButton()
+        self.box_list_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.box_list_toggle.setIcon(icon("select", size=16))
+        self.box_list_toggle.setText("当前帧手框")
+        self.box_list_toggle.setCheckable(True)
+        self.box_list_toggle.toggled.connect(self.box_list.setVisible)
+        summary_row = row(self.summary, self.box_list_toggle)
+        summary_row.layout().setStretch(0, 1)
+        left_layout.addWidget(summary_row)
         left_layout.addWidget(self.box_list)
+        self.box_list.hide()
         splitter.addWidget(left)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -235,16 +302,18 @@ class MainWindow(QMainWindow):
         self.controls.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         control_layout = QVBoxLayout(self.controls)
         control_layout.setContentsMargins(4, 0, 4, 0)
+        control_layout.setSpacing(10)
         # The range is shared by sampling, detection, deletion and action assignment.
         group, layout = self._group("1  选择时间范围（秒）")
         self.start = spin()
         self.end = spin()
         self.start.valueChanged.connect(self.range_updated)
         self.end.valueChanged.connect(self.range_updated)
-        layout.addWidget(row(QLabel("起"), self.start, QLabel("止"), self.end))
+        layout.addWidget(row(QLabel("起点"), self.start, QLabel("终点"), self.end))
         layout.addWidget(row(button("设为起点 · I", self.start_here), button("设为终点 · O", self.end_here)))
         layout.addWidget(button("选择整个素材", self.select_all))
         self.range_info = QLabel("范围内 0 帧")
+        self.range_info.setProperty("role", "hint")
         layout.addWidget(self.range_info)
         control_layout.addWidget(group)
         group, layout = self._group("2  抽帧计划（可分段设置）")
@@ -261,6 +330,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(row(button("移除所选段", self.remove_segment), button("清空分段", self.clear_segments)))
         hint = QLabel("区间使用 [起点, 终点)，不能重叠；其余时间使用默认 FPS。\n改动抽帧计划会保留已有标注，导出仅包含当前抽帧。")
         hint.setWordWrap(True)
+        hint.setProperty("role", "hint")
         layout.addWidget(hint)
         control_layout.addWidget(group)
         group, layout = self._group("3  手部模型初次打标")
@@ -291,9 +361,11 @@ class MainWindow(QMainWindow):
                              button("删除画面右手", lambda: self.delete_side("right"), danger=True)))
         hint = QLabel("相对模式：有两只以上时取最左 / 最右框；只有一只时按分界线判断。\n手交叉或遮挡时，使用下方参考手跟踪。")
         hint.setWordWrap(True)
+        hint.setProperty("role", "hint")
         layout.addWidget(hint)
         self.reference_info = QLabel("参考手：在画面中点选手框，再设为参考")
         self.reference_info.setWordWrap(True)
+        self.reference_info.setProperty("role", "hint")
         layout.addWidget(self.reference_info)
         layout.addWidget(button("将当前所选手框设为参考", self.set_reference))
         self.max_gap = spin(0.8, 10, 0.05, 2)
@@ -302,6 +374,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(row(button("预览跟踪范围", self.preview_track), button("删除跟踪到的手", self.delete_track, danger=True)))
         self.track_info = QLabel("粉色框显示跟踪目标；遇到歧义会停止该方向。")
         self.track_info.setWordWrap(True)
+        self.track_info.setProperty("role", "hint")
         layout.addWidget(self.track_info)
         control_layout.addWidget(group)
         group, layout = self._group("5  批量赋动作标签")
@@ -331,9 +404,12 @@ class MainWindow(QMainWindow):
         self.progress.setValue(0)
         self.cancel_button = button("取消任务", self.cancel_job)
         self.cancel_button.setEnabled(False)
-        main.addWidget(row(self.progress, self.cancel_button))
+        self.task_footer = row(self.progress, self.cancel_button)
+        self.task_footer.hide()
+        main.addWidget(self.task_footer)
         self.message = QLabel("就绪  ·  Ctrl+S 保存项目；标注修改同时自动保存恢复副本。")
         self.message.setWordWrap(True)
+        self.message.setObjectName("statusMessage")
         main.addWidget(self.message)
         self.setCentralWidget(central)
 
@@ -393,7 +469,7 @@ class MainWindow(QMainWindow):
         try:
             project = Project.open(path, folder_fps)
             digest = hashlib.sha256(project.source.path.encode()).hexdigest()[:10]
-            recovery = ROOT / "projects" / f"recovery_{digest}.handproj"
+            recovery = self.recovery_directory / f"recovery_{digest}.handproj"
             if restore and recovery.exists():
                 answer = QMessageBox.question(self, "发现恢复副本", "此素材存在自动保存的项目，是否恢复标注和抽帧计划？")
                 if answer == QMessageBox.StandardButton.Yes:
@@ -429,7 +505,7 @@ class MainWindow(QMainWindow):
         self.reader = FrameReader(project.source)
         self.project_path = None
         digest = hashlib.sha256(project.source.path.encode()).hexdigest()[:10]
-        self.recovery_path = ROOT / "projects" / f"recovery_{digest}.handproj"
+        self.recovery_path = self.recovery_directory / f"recovery_{digest}.handproj"
         self.reference = None
         self.clear_track()
         self.reference_info.setText("参考手：在画面中点选手框，再设为参考")
@@ -511,6 +587,12 @@ class MainWindow(QMainWindow):
         self.timeline.current = frame.time
         self.timeline.ensure_visible(frame.time)
         self.timeline.update()
+        self.preview_clock.setText(clock_text(frame.time))
+        self.hand_count_badge.setText(f"{len(frame.shapes)} 个手框")
+        self.box_list_toggle.setText(f"当前帧手框 · {len(frame.shapes)}")
+        self.hand_count_badge.setProperty("single", len(frame.shapes) == 1)
+        self.hand_count_badge.style().unpolish(self.hand_count_badge)
+        self.hand_count_badge.style().polish(self.hand_count_badge)
         self.frame_info.setText(f"{clock_text(frame.time)}  /  {clock_text(self.project.source.duration)}   ·   "
                                 f"抽帧 {self.position + 1:,}/{len(self.indices):,}   ·   源帧 #{index}   ·   {len(frame.shapes)} 个手框   ·   "
                                 f"{'已检测 / 编辑' if frame.processed else '未检测'}")
@@ -581,7 +663,8 @@ class MainWindow(QMainWindow):
         else:
             if self.position == len(self.indices) - 1:
                 self.show_position(0)
-            self.play_button.setText("暂停 · Space")
+            self.play_button.setText("暂停")
+            self.play_button.setIcon(icon("pause", "#0b1b31", 17))
             self._schedule_play()
 
     def _schedule_play(self):
@@ -598,7 +681,8 @@ class MainWindow(QMainWindow):
     def stop_play(self):
         if hasattr(self, "play_timer"):
             self.play_timer.stop()
-        self.play_button.setText("播放 · Space")
+        self.play_button.setText("播放")
+        self.play_button.setIcon(icon("play", "#0b1b31", 17))
 
     def set_range(self, start, end):
         self.start.blockSignals(True)
@@ -873,6 +957,7 @@ class MainWindow(QMainWindow):
         self.save_timer.stop()
         self._autosave()
         self.job_kind = kind
+        self.task_footer.show()
         self.controls.setEnabled(False)
         self.canvas.editable = False
         self.draw_button.setEnabled(False)
@@ -914,6 +999,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _job_finished(self):
+        self.task_footer.hide()
         self.controls.setEnabled(True)
         self.canvas.editable = True
         self.draw_button.setEnabled(True)
@@ -1011,7 +1097,11 @@ def create_application():
     font_path = Path("C:/Windows/Fonts/msyh.ttc")
     if font_path.exists():
         QFontDatabase.addApplicationFont(str(font_path))
+    mono_font = Path("C:/Windows/Fonts/consola.ttf")
+    if mono_font.exists():
+        QFontDatabase.addApplicationFont(str(mono_font))
     app.setFont(QFont("Microsoft YaHei", 10))
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
+    app.setWindowIcon(icon("logo", size=64))
     return app
