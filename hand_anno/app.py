@@ -187,6 +187,11 @@ class MainWindow(QMainWindow):
         self.frame_info = QLabel("未打开素材")
         self.frame_info.setStyleSheet("padding: 4px 0;")
         left_layout.addWidget(self.frame_info)
+        self.frame_sampling_info = QLabel("本帧抽帧计划：未打开素材")
+        self.frame_sampling_info.setWordWrap(True)
+        self.frame_sampling_info.setStyleSheet("background: #e8f1fa; color: #1968a4; border-radius: 4px; padding: 4px 7px;")
+        self.frame_sampling_info.setToolTip("按当前帧的时间确定抽帧计划。分段范围包含起点、不包含终点；未设置独立分段的区间使用默认 FPS。")
+        left_layout.addWidget(self.frame_sampling_info)
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.valueChanged.connect(self.show_position)
         left_layout.addWidget(self.slider)
@@ -509,6 +514,11 @@ class MainWindow(QMainWindow):
         self.frame_info.setText(f"{clock_text(frame.time)}  /  {clock_text(self.project.source.duration)}   ·   "
                                 f"抽帧 {self.position + 1:,}/{len(self.indices):,}   ·   源帧 #{index}   ·   {len(frame.shapes)} 个手框   ·   "
                                 f"{'已检测 / 编辑' if frame.processed else '未检测'}")
+        plan, number = self.project.sampling_plan_at(frame.time)
+        plan_name = f"分段 #{number}" if number is not None else "默认区间"
+        limit = f"（按源帧率上限 {self.project.source.fps:g} FPS）" if plan.fps > self.project.source.fps else ""
+        self.frame_sampling_info.setText(f"本帧抽帧计划：{plan_name}  ·  {clock_text(plan.start)} → {clock_text(plan.end)}（不含终点）"
+                                         f"  ·  {plan.fps:g} FPS{limit}")
         self.box_list.blockSignals(True)
         self.box_list.clear()
         for j, shape in enumerate(frame.shapes):

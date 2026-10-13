@@ -254,6 +254,17 @@ class Project:
             self.frames[index] = Frame(index, self.source.timestamp(index), self.source.width, self.source.height)
         return self.frames[index]
 
+    def sampling_plan_at(self, timestamp):
+        """Return the containing half-open plan and its custom segment number, if any."""
+        start = 0.0
+        for number, segment in enumerate(sorted(self.segments, key=lambda s: s.start), 1):
+            if timestamp < segment.start:
+                return SamplingSegment(start, segment.start, self.default_fps), None
+            if timestamp < segment.end:
+                return segment, number
+            start = segment.end
+        return SamplingSegment(start, self.source.duration, self.default_fps), None
+
     def sample_indices(self):
         duration = self.source.duration
         if not math.isfinite(self.default_fps) or self.default_fps <= 0:
