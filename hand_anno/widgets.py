@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 
 import cv2
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
@@ -179,6 +180,7 @@ class Canvas(QWidget):
 class Timeline(QWidget):
     seek = Signal(float)
     range_changed = Signal(float, float)
+    view_changed = Signal(float, float)
 
     def __init__(self):
         super().__init__()
@@ -191,25 +193,91 @@ class Timeline(QWidget):
         self.end = 0.0
         self.anchor = None
         self.dragging = False
-        self.setToolTip("左键单击或拖动预览帧；Shift + 左键拖动选段并预览。绿色：1 个手框；黄色：2 个及以上手框；灰色：空框或未检测。")
+        self.view_start = 0.0
+        self.view_end = 1.0
+        self.setToolTip("滚轮以鼠标位置为中心缩放；下方滚动条平移视区。左键拖动预览；Shift + 左键拖动选段并预览。绿色：1 个手框；黄色：多个手框；灰色：空框或未检测。")
+
+    @property
+    def view_span(self):
+        return max(self.view_end - self.view_start, 1e-7)
+
+    def set_view(self, start, end):
+        if self.project is None:
+            return
+        duration = self.project.source.duration
+        minimum_span = min(duration, max(0.1, 2 / self.project.source.fps))
+        span = min(duration, max(minimum_span, end - start))
+        start = (start + end - span) / 2
+        self.view_start = max(0, min(duration - span, start))
+        self.view_end = self.view_start + span
+        self.update()
+        self.view_changed.emit(self.view_start, self.view_end)
+
+    def reset_view(self):
+        if self.project is not None:
+            self.set_view(0, self.project.source.duration)
+
+    def zoom(self, factor, anchor=None):
+        if self.project is None or self.dragging or factor <= 0:
+            return
+        if anchor is None:
+            anchor = self.current if self.view_start <= self.current <= self.view_end else (self.view_start + self.view_end) / 2
+        fraction = max(0, min(1, (anchor - self.view_start) / self.view_span))
+        duration = self.project.source.duration
+        minimum_span = min(duration, max(0.1, 2 / self.project.source.fps))
+        span = min(duration, max(minimum_span, self.view_span / factor))
+        start = anchor - fraction * span
+        self.set_view(start, start + span)
+
+    def focus_range(self, start, end):
+        if start > end:
+            raise ValueError("起点大于终点，请先调整时间范围。")
+        padding = max((end - start) * 0.1, 0.01)
+        self.set_view(start - padding, end + padding)
+
+    def pan_to(self, fraction):
+        if self.project is not None:
+            start = max(0, min(1, fraction)) * (self.project.source.duration - self.view_span)
+            self.set_view(start, start + self.view_span)
+
+    def ensure_visible(self, time):
+        if self.project is None or self.dragging:
+            return
+        if time < self.view_start or time > self.view_end:
+            start = time - self.view_span * (0.1 if time < self.view_start else 0.9)
+            self.set_view(start, start + self.view_span)
 
     def x_for(self, timestamp):
-        duration = self.project.source.duration if self.project else 1
-        return 16 + (self.width() - 32) * timestamp / max(duration, 1e-7)
+        return 16 + (self.width() - 32) * (timestamp - self.view_start) / self.view_span
 
     def time_for(self, x):
-        duration = self.project.source.duration if self.project else 1
-        return max(0, min(duration, (x - 16) / max(self.width() - 32, 1) * duration))
+        fraction = max(0, min(1, (x - 16) / max(self.width() - 32, 1)))
+        return self.view_start + fraction * self.view_span
+
+    def wheelEvent(self, event):
+        if self.project is None or self.dragging:
+            event.ignore()
+            return
+        steps = event.angleDelta().y() / 120
+        if steps:
+            self.zoom(1.25 ** max(-10, min(10, steps)), self.time_for(event.position().x()))
+            event.accept()
+        else:
+            event.ignore()
 
     def paintEvent(self, _):
         p = QPainter(self)
         p.fillRect(self.rect(), QColor("#18232e"))
         if self.project is None:
             return
-        duration = self.project.source.duration
         p.fillRect(QRectF(16, 36, self.width() - 32, 24), QColor("#34414f"))
+        p.save()
+        p.setClipRect(QRectF(16, 23, self.width() - 32, 42))
         p.fillRect(QRectF(self.x_for(self.start), 32, max(2, self.x_for(self.end) - self.x_for(self.start)), 32), QColor("#224559"))
         for i in self.indices:
+            timestamp = self.project.source.timestamp(i)
+            if not self.view_start <= timestamp <= self.view_end:
+                continue
             frame = self.project.frames.get(i)
             color = "#4c6072"
             if frame and len(frame.shapes) == 1:
@@ -219,17 +287,26 @@ class Timeline(QWidget):
             elif frame and frame.processed:
                 color = "#92a0ab"
             p.setPen(QPen(QColor(color), 2))
-            x = self.x_for(self.project.source.timestamp(i))
+            x = self.x_for(timestamp)
             p.drawLine(QPointF(x, 40), QPointF(x, 56))
         for s in self.project.segments:
             p.fillRect(QRectF(self.x_for(s.start), 23, max(2, self.x_for(s.end) - self.x_for(s.start)), 5), QColor("#72b7ff"))
+        p.restore()
         p.setPen(QColor("#98abba"))
-        for tick in range(6):
-            time = duration * tick / 5
+        desired_step = self.view_span / max(2, (self.width() - 32) / 100)
+        base = 10 ** math.floor(math.log10(desired_step))
+        tick_step = next(multiplier * base for multiplier in (1, 2, 5, 10) if multiplier * base >= desired_step)
+        first_tick = math.ceil(self.view_start / tick_step - 1e-8)
+        last_tick = math.floor(self.view_end / tick_step + 1e-8)
+        for tick in range(first_tick, last_tick + 1):
+            time = tick * tick_step
             x = self.x_for(time)
-            p.drawText(QRectF(x - 35, 69, 70, 22), Qt.AlignmentFlag.AlignCenter, clock_text(time)[:5])
+            label = clock_text(time) if tick_step < 1 else clock_text(time)[:5]
+            left = max(0, min(self.width() - 90, x - 45))
+            p.drawText(QRectF(left, 69, 90, 22), Qt.AlignmentFlag.AlignCenter, label)
         p.setPen(QPen(QColor("#72b7ff"), 2))
-        p.drawLine(QPointF(self.x_for(self.current), 16), QPointF(self.x_for(self.current), 65))
+        if self.view_start <= self.current <= self.view_end:
+            p.drawLine(QPointF(self.x_for(self.current), 16), QPointF(self.x_for(self.current), 65))
         p.setPen(QColor("#d9e5ed"))
         p.drawText(16, 15, "时间轴  ·  左键拖动预览  ·  Shift + 拖动选段并预览")
 

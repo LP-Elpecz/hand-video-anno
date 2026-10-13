@@ -3,7 +3,8 @@ import time
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFileDialog
 
@@ -129,8 +130,11 @@ def test_manual_save_updates_recovery_before_debounce(window, tmp_path, monkeypa
 
 
 @pytest.mark.parametrize("select_range", [False, True])
-def test_timeline_drag_previews_frames_forward_backward_and_on_release(window, app, select_range):
+@pytest.mark.parametrize("zoomed", [False, True])
+def test_timeline_drag_previews_frames_forward_backward_and_on_release(window, app, select_range, zoomed):
     timeline = window.timeline
+    if zoomed:
+        timeline.zoom(1.2, anchor=0.8)
     original_range = (window.start.value(), window.end.value())
     modifier = Qt.KeyboardModifier.ShiftModifier if select_range else Qt.KeyboardModifier.NoModifier
 
@@ -177,3 +181,66 @@ def test_timeline_drag_clamps_preview_at_edges_and_ignores_right_button(window, 
     QTest.mouseRelease(timeline, Qt.MouseButton.LeftButton, pos=QPoint(0, 48))
     app.processEvents()
     assert window.current_index() == 0
+
+
+def test_timeline_zoom_pan_and_reset_preserve_selection_and_annotations(window, app):
+    timeline = window.timeline
+    window.show_position(5)
+    window.set_range(0.4, 1.6)
+    original = copy.deepcopy(window.project.to_dict())
+    timeline.zoom(2)
+    assert (timeline.view_start, timeline.view_end) == pytest.approx((0.5, 1.5))
+    assert window.timeline_scroll.isEnabled()
+    assert timeline.time_for(timeline.x_for(1.2)) == pytest.approx(1.2)
+    window.timeline_scroll.setValue(window.timeline_scroll.maximum())
+    assert (timeline.view_start, timeline.view_end) == pytest.approx((1.0, 2.0))
+    window.timeline_scroll.setValue(0)
+    assert (timeline.view_start, timeline.view_end) == pytest.approx((0.0, 1.0))
+    timeline.reset_view()
+    assert (timeline.view_start, timeline.view_end) == pytest.approx((0, 2))
+    assert not window.timeline_scroll.isEnabled()
+    assert window.current_index() == 5
+    assert (window.start.value(), window.end.value()) == (0.4, 1.6)
+    assert window.project.to_dict() == original
+
+
+def test_wheel_zoom_keeps_time_under_pointer_fixed(window, app):
+    timeline = window.timeline
+    position = QPointF(timeline.x_for(0.8), 48)
+    event = QWheelEvent(position, QPointF(timeline.mapToGlobal(position.toPoint())),
+                        QPoint(), QPoint(0, 120), Qt.MouseButton.NoButton,
+                        Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+    QApplication.sendEvent(timeline, event)
+    assert timeline.view_span == pytest.approx(1.6)
+    assert timeline.time_for(position.x()) == pytest.approx(0.8)
+    assert window.current_index() == 0
+
+
+def test_zoom_limits_source_edges_and_focus_selected_range(window):
+    timeline = window.timeline
+    for _ in range(20):
+        timeline.zoom(2, anchor=1.8)
+    assert timeline.view_span == pytest.approx(0.4)
+    timeline.pan_to(1)
+    assert timeline.view_end == pytest.approx(2)
+    timeline.pan_to(0)
+    assert timeline.view_start == 0
+    window.set_range(0.6, 1.0)
+    window.focus_timeline_range()
+    assert timeline.view_start < 0.6 and timeline.view_end > 1.0
+    assert timeline.view_span < 1
+    timeline.zoom(0.001)
+    assert (timeline.view_start, timeline.view_end) == pytest.approx((0, 2))
+
+
+def test_frame_navigation_follows_zoomed_view_but_keeps_selection(window):
+    timeline = window.timeline
+    timeline.zoom(2, anchor=0)
+    assert timeline.view_end == pytest.approx(1)
+    selected = (window.start.value(), window.end.value())
+    window.show_position(9)
+    assert timeline.view_start <= 1.8 <= timeline.view_end
+    assert timeline.view_span == pytest.approx(1)
+    assert (window.start.value(), window.end.value()) == selected
+    window.show_position(0)
+    assert timeline.view_start == 0

@@ -12,7 +12,7 @@ from PySide6.QtGui import QAction, QFont, QFontDatabase, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow,
-    QMessageBox, QProgressBar, QPushButton, QScrollArea, QSlider, QSpinBox,
+    QMessageBox, QProgressBar, QPushButton, QScrollArea, QScrollBar, QSlider, QSpinBox,
     QSizePolicy, QSplitter, QVBoxLayout, QWidget,
 )
 
@@ -204,6 +204,17 @@ class MainWindow(QMainWindow):
         self.timeline.seek.connect(self.seek_from_timeline)
         self.timeline.range_changed.connect(self.set_range)
         left_layout.addWidget(self.timeline)
+        self.timeline_scroll = QScrollBar(Qt.Orientation.Horizontal)
+        self.timeline_scroll.setEnabled(False)
+        self.timeline_scroll.setToolTip("平移放大后的时间轴视区，不改变当前帧或所选时间范围。")
+        self.timeline_scroll.valueChanged.connect(self.pan_timeline)
+        left_layout.addWidget(self.timeline_scroll)
+        self.timeline_view_info = QLabel("全览 · 滚轮缩放")
+        left_layout.addWidget(row(button("放大 +", lambda: self.timeline.zoom(2)),
+                                  button("缩小 −", lambda: self.timeline.zoom(0.5)),
+                                  button("全览", self.timeline.reset_view),
+                                  button("聚焦选段", self.focus_timeline_range), self.timeline_view_info))
+        self.timeline.view_changed.connect(self.timeline_view_changed)
         left_layout.addWidget(QLabel("时间轴：绿色 = 1 个手框；黄色 = 2 个及以上手框；灰色 = 空框 / 未检测；蓝色横条 = 分段抽帧设置。"))
         self.summary = QLabel("当前抽帧 0  ·  已检测 / 编辑 0  ·  保留框 0  ·  待赋动作框 0")
         left_layout.addWidget(self.summary)
@@ -449,7 +460,10 @@ class MainWindow(QMainWindow):
         self.slider.blockSignals(True)
         self.slider.setRange(0, max(0, len(self.indices) - 1))
         self.slider.blockSignals(False)
-        self.timeline.project, self.timeline.indices = self.project, self.indices
+        self.timeline.indices = self.indices
+        if self.timeline.project is not self.project:
+            self.timeline.project = self.project
+            self.timeline.reset_view()
         self.segment_list.clear()
         for s in self.project.segments:
             self.segment_list.addItem(f"{s.start:.3f} → {s.end:.3f} 秒   |   {s.fps:g} FPS")
@@ -490,6 +504,7 @@ class MainWindow(QMainWindow):
         self.slider.setValue(self.position)
         self.slider.blockSignals(False)
         self.timeline.current = frame.time
+        self.timeline.ensure_visible(frame.time)
         self.timeline.update()
         self.frame_info.setText(f"{clock_text(frame.time)}  /  {clock_text(self.project.source.duration)}   ·   "
                                 f"抽帧 {self.position + 1:,}/{len(self.indices):,}   ·   源帧 #{index}   ·   {len(frame.shapes)} 个手框   ·   "
@@ -504,6 +519,32 @@ class MainWindow(QMainWindow):
     def seek_from_timeline(self, time):
         self.stop_play()
         self.seek_time(time, skip_unchanged=True)
+
+    def timeline_view_changed(self, start, end):
+        duration = self.timeline.project.source.duration
+        span = end - start
+        available = max(0, duration - span)
+        maximum = min(2147483647, round(available * 1000))
+        self.timeline_scroll.blockSignals(True)
+        self.timeline_scroll.setRange(0, maximum)
+        self.timeline_scroll.setValue(round(start / available * maximum) if available else 0)
+        self.timeline_scroll.setPageStep(max(1, round(span / available * maximum)) if available else 1)
+        self.timeline_scroll.setSingleStep(max(1, round(min(1, span / 10) / available * maximum)) if available else 1)
+        self.timeline_scroll.setEnabled(maximum > 0)
+        self.timeline_scroll.blockSignals(False)
+        self.timeline_view_info.setText(f"{clock_text(start)} → {clock_text(end)}  ·  {duration / span:.1f}×")
+
+    def pan_timeline(self, position):
+        maximum = self.timeline_scroll.maximum()
+        if maximum:
+            self.timeline.pan_to(position / maximum)
+
+    def focus_timeline_range(self):
+        if self.ready():
+            try:
+                self.timeline.focus_range(self.start.value(), self.end.value())
+            except ValueError as error:
+                self.problem(error)
 
     def seek_time(self, time, skip_unchanged=False):
         if not self.indices:
