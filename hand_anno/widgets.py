@@ -190,7 +190,8 @@ class Timeline(QWidget):
         self.start = 0.0
         self.end = 0.0
         self.anchor = None
-        self.setToolTip("单击定位；Shift + 拖动选择时间范围。绿色：1 个手框；黄色：2 个及以上手框；灰色：空框或未检测。")
+        self.dragging = False
+        self.setToolTip("左键单击或拖动预览帧；Shift + 左键拖动选段并预览。绿色：1 个手框；黄色：2 个及以上手框；灰色：空框或未检测。")
 
     def x_for(self, timestamp):
         duration = self.project.source.duration if self.project else 1
@@ -230,22 +231,30 @@ class Timeline(QWidget):
         p.setPen(QPen(QColor("#72b7ff"), 2))
         p.drawLine(QPointF(self.x_for(self.current), 16), QPointF(self.x_for(self.current), 65))
         p.setPen(QColor("#d9e5ed"))
-        p.drawText(16, 15, "时间轴  ·  Shift + 拖动选段")
+        p.drawText(16, 15, "时间轴  ·  左键拖动预览  ·  Shift + 拖动选段并预览")
 
     def mousePressEvent(self, event):
-        if self.project is None:
+        if self.project is None or event.button() != Qt.MouseButton.LeftButton:
             return
+        self.setFocus()
+        self.dragging = True
         time = self.time_for(event.position().x())
-        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-            self.anchor = time
-            self.range_changed.emit(time, time)
-        else:
-            self.seek.emit(time)
+        self.anchor = time if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else None
+        self._drag_to(time)
+
+    def _drag_to(self, time):
+        if self.anchor is not None:
+            self.range_changed.emit(min(time, self.anchor), max(time, self.anchor))
+        self.seek.emit(time)
 
     def mouseMoveEvent(self, event):
-        if self.anchor is not None:
-            time = self.time_for(event.position().x())
-            self.range_changed.emit(min(time, self.anchor), max(time, self.anchor))
+        if self.dragging and self.project is not None:
+            self._drag_to(self.time_for(event.position().x()))
 
     def mouseReleaseEvent(self, event):
+        if event.button() != Qt.MouseButton.LeftButton or not self.dragging:
+            return
+        if self.project is not None:
+            self._drag_to(self.time_for(event.position().x()))
+        self.dragging = False
         self.anchor = None

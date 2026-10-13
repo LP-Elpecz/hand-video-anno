@@ -21,7 +21,7 @@ def window(app, tmp_path):
     inputs = tmp_path / "images"
     inputs.mkdir()
     for i in range(10):
-        write_image(inputs / f"{i}.png", np.zeros((120, 200, 3), dtype=np.uint8))
+        write_image(inputs / f"{i}.png", np.full((120, 200, 3), i * 20, dtype=np.uint8))
     project = Project.open(inputs, 5)
     for i in range(10):
         frame = project.frame(i)
@@ -126,3 +126,54 @@ def test_manual_save_updates_recovery_before_debounce(window, tmp_path, monkeypa
     window.save_project()
     assert Project.load(destination).frame(0).shapes[0].label == "检查"
     assert Project.load(window.recovery_path).frame(0).shapes[0].label == "检查"
+
+
+@pytest.mark.parametrize("select_range", [False, True])
+def test_timeline_drag_previews_frames_forward_backward_and_on_release(window, app, select_range):
+    timeline = window.timeline
+    original_range = (window.start.value(), window.end.value())
+    modifier = Qt.KeyboardModifier.ShiftModifier if select_range else Qt.KeyboardModifier.NoModifier
+
+    def point(seconds):
+        return QPoint(round(timeline.x_for(seconds)), 48)
+
+    def assert_frame(index):
+        app.processEvents()
+        assert window.current_index() == index
+        assert window.canvas.image.pixelColor(0, 0).red() == index * 20
+        assert timeline.current == pytest.approx(index / 5)
+
+    window.toggle_play()
+    assert window.play_timer.isActive()
+    QTest.mousePress(timeline, Qt.MouseButton.LeftButton, modifier, point(0.4))
+    assert_frame(2)
+    assert not window.play_timer.isActive()
+    QTest.mouseMove(timeline, point(1.4))
+    assert_frame(7)
+    QTest.mouseMove(timeline, point(0.2))
+    assert_frame(1)
+    if select_range:
+        assert window.start.value() == pytest.approx(0.2, abs=0.003)
+        assert window.end.value() == pytest.approx(0.4, abs=0.003)
+    QTest.mouseRelease(timeline, Qt.MouseButton.LeftButton, modifier, point(1.6))
+    assert_frame(8)
+    if select_range:
+        assert window.start.value() == pytest.approx(0.4, abs=0.003)
+        assert window.end.value() == pytest.approx(1.6, abs=0.003)
+    else:
+        assert (window.start.value(), window.end.value()) == original_range
+    QTest.mouseMove(timeline, point(0.8))
+    assert_frame(8)  # Moving without a held left button must leave the preview alone.
+
+
+def test_timeline_drag_clamps_preview_at_edges_and_ignores_right_button(window, app):
+    timeline = window.timeline
+    QTest.mouseClick(timeline, Qt.MouseButton.RightButton, pos=QPoint(round(timeline.x_for(1.0)), 48))
+    assert window.current_index() == 0
+    QTest.mousePress(timeline, Qt.MouseButton.LeftButton, pos=QPoint(round(timeline.x_for(0.4)), 48))
+    QTest.mouseMove(timeline, QPoint(timeline.width() - 1, 48))
+    app.processEvents()
+    assert window.current_index() == 9
+    QTest.mouseRelease(timeline, Qt.MouseButton.LeftButton, pos=QPoint(0, 48))
+    app.processEvents()
+    assert window.current_index() == 0

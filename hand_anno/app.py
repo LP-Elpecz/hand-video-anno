@@ -201,7 +201,7 @@ class MainWindow(QMainWindow):
                                   button("下一帧 · D", lambda: self.step(1)), self.speed,
                                   self.draw_button, button("删除所选框 · Del", self.delete_current)))
         self.timeline = Timeline()
-        self.timeline.seek.connect(self.seek_time)
+        self.timeline.seek.connect(self.seek_from_timeline)
         self.timeline.range_changed.connect(self.set_range)
         left_layout.addWidget(self.timeline)
         left_layout.addWidget(QLabel("时间轴：绿色 = 1 个手框；黄色 = 2 个及以上手框；灰色 = 空框 / 未检测；蓝色横条 = 分段抽帧设置。"))
@@ -501,7 +501,11 @@ class MainWindow(QMainWindow):
         self.box_list.setCurrentRow(self.canvas.selected)
         self.box_list.blockSignals(False)
 
-    def seek_time(self, time):
+    def seek_from_timeline(self, time):
+        self.stop_play()
+        self.seek_time(time, skip_unchanged=True)
+
+    def seek_time(self, time, skip_unchanged=False):
         if not self.indices:
             return
         times = [self.project.source.timestamp(i) for i in self.indices]
@@ -510,6 +514,8 @@ class MainWindow(QMainWindow):
             p = len(times) - 1
         if p and abs(times[p - 1] - time) < abs(times[p] - time):
             p -= 1
+        if skip_unchanged and p == self.position:
+            return
         self.show_position(p)
 
     def step(self, amount):
