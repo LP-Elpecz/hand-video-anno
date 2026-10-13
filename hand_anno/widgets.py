@@ -190,7 +190,7 @@ class Timeline(QWidget):
         self.start = 0.0
         self.end = 0.0
         self.anchor = None
-        self.setToolTip("单击定位；Shift + 拖动选择时间范围。绿色：有动作标签；黄色：待赋动作；灰色：空框或未检测。")
+        self.setToolTip("单击定位；Shift + 拖动选择时间范围。绿色：1 个手框；黄色：2 个及以上手框；灰色：空框或未检测。")
 
     def x_for(self, timestamp):
         duration = self.project.source.duration if self.project else 1
@@ -211,10 +211,12 @@ class Timeline(QWidget):
         for i in self.indices:
             frame = self.project.frames.get(i)
             color = "#4c6072"
-            if frame and frame.processed:
-                color = "#92a0ab" if not frame.shapes else "#f4c36b"
-                if frame.shapes and all(s.label != "hand" for s in frame.shapes):
-                    color = "#52dab1"
+            if frame and len(frame.shapes) == 1:
+                color = "#52dab1"
+            elif frame and frame.shapes:
+                color = "#f4c36b"
+            elif frame and frame.processed:
+                color = "#92a0ab"
             p.setPen(QPen(QColor(color), 2))
             x = self.x_for(self.project.source.timestamp(i))
             p.drawLine(QPointF(x, 40), QPointF(x, 56))
