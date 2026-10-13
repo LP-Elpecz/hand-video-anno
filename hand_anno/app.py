@@ -21,7 +21,7 @@ from .core import (Cancelled, EditHistory, FrameReader, Project, SamplingSegment
 from .detector import DEFAULT_MODEL, ROOT, detect_project
 from .widgets import Canvas, Timeline, clock_text
 from .icons import button_icon, icon
-from .theme import STYLE
+from .theme import PALETTE as C, STYLE
 
 
 class Worker(QThread):
@@ -57,7 +57,7 @@ class CollapsibleGroup(QWidget):
         self.header.setObjectName("sectionTitle")
         self.header.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.header.setText(name)
-        self.header.setIcon(icon({"1": "clock", "2": "timeline", "3": "scan", "4": "hand", "5": "tag"}[number], "#91b7ec", 18))
+        self.header.setIcon(icon({"1": "clock", "2": "timeline", "3": "scan", "4": "hand", "5": "tag"}[number], C["badge_text"], 18))
         self.header.setIconSize(QSize(18, 18))
         self.header.clicked.connect(lambda: self.set_collapsed(not self.collapsed))
         self.toggle = QToolButton()
@@ -113,7 +113,7 @@ def row(*widgets):
 def button(text, callback, primary=False, danger=False):
     widget = QPushButton(text.split(" · ")[0])
     widget.setToolTip(text)
-    widget.setIcon(icon(button_icon(text), "#0b1b31" if primary else "#f49b9c" if danger else "#abc6e7", 17))
+    widget.setIcon(icon(button_icon(text), C["on_accent"] if primary else C["reference"] if danger else C["muted"], 17))
     widget.setIconSize(QSize(17, 17))
     widget.clicked.connect(callback)
     if primary:
@@ -175,7 +175,7 @@ class MainWindow(QMainWindow):
         ):
             action = QAction(title, self)
             action.setIcon(icon({"打开视频": "video", "打开图片目录": "images", "打开项目": "folder", "保存项目": "save",
-                                 "导出数据集": "export", "撤销": "undo", "重做": "redo"}[title], "#9cb9df", 19))
+                                 "导出数据集": "export", "撤销": "undo", "重做": "redo"}[title], C["muted"], 19))
             action.triggered.connect(callback)
             if shortcut:
                 action.setShortcut(QKeySequence(shortcut))
@@ -210,7 +210,7 @@ class MainWindow(QMainWindow):
         left_layout.setContentsMargins(0, 0, 8, 0)
         left_layout.setSpacing(7)
         viewer_icon = QLabel()
-        viewer_icon.setPixmap(icon("video", "#8aaedb", 17).pixmap(QSize(17, 17)))
+        viewer_icon.setPixmap(icon("video", C["accent2"], 17).pixmap(QSize(17, 17)))
         viewer_title = QLabel("帧预览")
         viewer_title.setObjectName("viewerTitle")
         self.preview_clock = QLabel("00:00.000")
@@ -237,7 +237,7 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.slider)
         self.play_button = button("播放 · Space", self.toggle_play)
         self.draw_button = QCheckBox("补框 · R")
-        self.draw_button.setIcon(icon("draw", "#a2c2ec", 16))
+        self.draw_button.setIcon(icon("draw", C["muted"], 16))
         self.draw_button.toggled.connect(self._drawing_changed)
         self.speed = QComboBox()
         for text, value in (("0.5×", 0.5), ("1×", 1), ("2×", 2), ("4×", 4)):
@@ -245,7 +245,7 @@ class MainWindow(QMainWindow):
         self.speed.setCurrentIndex(1)
         self.speed.setFixedWidth(76)
         self.play_button.setProperty("primary", True)
-        self.play_button.setIcon(icon("play", "#0b1b31", 17))
+        self.play_button.setIcon(icon("play", C["on_accent"], 17))
         transport = row(button("上一帧 · A", lambda: self.step(-1)), self.play_button,
                         button("下一帧 · D", lambda: self.step(1)), self.speed,
                         self.draw_button, button("删除所选框 · Del", self.delete_current))
@@ -274,8 +274,8 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(zoom_controls)
         self.timeline.view_changed.connect(self.timeline_view_changed)
         legend = QLabel("● 单手    ● 多手    ● 空框 / 未检测    ━ 分段抽帧设置")
-        legend.setText('<span style="color:#52dab1">● 单手</span>　 <span style="color:#f4c36b">● 多手</span>　 '
-                       '<span style="color:#8c9bae">● 空框 / 未检测</span>　 <span style="color:#72b7ff">━ 分段抽帧设置</span>')
+        legend.setText(f'<span style="color:{C["success"]}">● 单手</span>　 <span style="color:{C["warning"]}">● 多手</span>　 '
+                       f'<span style="color:{C["muted"]}">● 空框 / 未检测</span>　 <span style="color:{C["accent2"]}">━ 分段抽帧设置</span>')
         legend.setProperty("role", "hint")
         left_layout.addWidget(legend)
         self.summary = QLabel("当前抽帧 0  ·  已检测 / 编辑 0  ·  保留框 0  ·  待赋动作框 0")
@@ -664,7 +664,7 @@ class MainWindow(QMainWindow):
             if self.position == len(self.indices) - 1:
                 self.show_position(0)
             self.play_button.setText("暂停")
-            self.play_button.setIcon(icon("pause", "#0b1b31", 17))
+            self.play_button.setIcon(icon("pause", C["on_accent"], 17))
             self._schedule_play()
 
     def _schedule_play(self):
@@ -682,7 +682,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "play_timer"):
             self.play_timer.stop()
         self.play_button.setText("播放")
-        self.play_button.setIcon(icon("play", "#0b1b31", 17))
+        self.play_button.setIcon(icon("play", C["on_accent"], 17))
 
     def set_range(self, start, end):
         self.start.blockSignals(True)

@@ -4,6 +4,7 @@ from functools import lru_cache
 from PySide6.QtCore import QByteArray, Qt
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
+from .theme import PALETTE as C
 
 
 PATHS = {
@@ -38,12 +39,12 @@ PATHS = {
     "chevron-down": '<path d="m6 9 6 6 6-6"/>',
     "chevron-right": '<path d="m9 6 6 6-6 6"/>',
     "check": '<path d="m5 12 4 4L19 6"/>',
-    "logo": '<rect x="1" y="1" width="22" height="22" rx="6" fill="#73a8ff" stroke="none"/><path d="M9 6H6v3M15 6h3v3M18 15v3h-3M9 18H6v-3M9 12h6" stroke="#101927"/>',
+    "logo": f'<rect x="1" y="1" width="22" height="22" rx="6" fill="{C["brand"]}" stroke="none"/><path d="M9 6H6v3M15 6h3v3M18 15v3h-3M9 18H6v-3M9 12h6" stroke="{C["on_accent"]}"/>',
 }
 
 
 @lru_cache(maxsize=128)
-def icon(name, color="#a6b6cc", size=20):
+def icon(name, color=C["muted"], size=20):
     body = PATHS.get(name, PATHS["select"])
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
            f'stroke="{color}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{body}</svg>')
