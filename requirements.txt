@@ -1,0 +1,5 @@
+PySide6-Essentials==6.10.2
+opencv-python>=4.10,<5
+numpy>=1.26,<3
+ultralytics==8.4.176
+# Use the existing CUDA build of torch/torchvision in the common Conda environment.

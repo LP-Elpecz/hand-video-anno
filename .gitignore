@@ -1,0 +1,11 @@
+__pycache__/
+.pytest_cache/
+*.log
+*.tmp
+artifacts/
+outputs/
+projects/
+models/*.pt
+models/*.onnx
+models/*.download
+/示例视频.mp4
