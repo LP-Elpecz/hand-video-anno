@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 
 from .core import (Cancelled, EditHistory, FrameReader, Project, SamplingSegment,
                    export_project, side_indices, track_reference)
-from .detector import DEFAULT_MODEL, ROOT, detect_project
+from .detector import DEFAULT_MODEL, GLOVED_MODEL, ROOT, detect_project
 from .widgets import Canvas, Timeline, clock_text
 from .icons import button_icon, icon
 from .theme import PALETTE as C, STYLE
@@ -335,13 +335,24 @@ class MainWindow(QMainWindow):
         control_layout.addWidget(group)
         group, layout = self._group("3  手部模型初次打标")
         self.detector_group = group
-        self.model_path = QLineEdit(str(DEFAULT_MODEL))
+        self.model_preset = QComboBox()
+        self.model_preset.addItem("戴手套 · Grounding DINO", str(GLOVED_MODEL))
+        self.model_preset.addItem("通用手 · YOLO（快速）", str(DEFAULT_MODEL))
+        self.model_preset.addItem("自定义模型", None)
+        layout.addWidget(self.model_preset)
+        self.model_path = QLineEdit(str(GLOVED_MODEL))
         layout.addWidget(row(self.model_path, button("选择", self.choose_model)))
-        self.confidence = spin(0.55, 0.99, 0.01, 2)
+        self.confidence = spin(0.4, 0.99, 0.01, 2)
         self.device = QComboBox()
         for label, value in (("自动（优先 GPU）", "auto"), ("GPU 0", "0"), ("CPU", "cpu")):
             self.device.addItem(label, value)
         layout.addWidget(row(QLabel("置信度"), self.confidence, self.device))
+        self.model_hint = QLabel("针对戴手套的手，建议置信度 0.40；首次使用下载约 690 MB，之后离线运行。")
+        self.model_hint.setWordWrap(True)
+        self.model_hint.setProperty("role", "hint")
+        layout.addWidget(self.model_hint)
+        self.model_preset.currentIndexChanged.connect(self.select_model_preset)
+        self.model_path.textEdited.connect(lambda _: self.model_preset.setCurrentIndex(2))
         self.overwrite = QCheckBox("重新检测并覆盖范围内已有标注（可撤销）")
         layout.addWidget(self.overwrite)
         layout.addWidget(button("检测所选时间范围", self.detect, primary=True))
@@ -930,9 +941,22 @@ class MainWindow(QMainWindow):
                 self.changed()
                 self.report(f"已重做：{name}")
 
-    def choose_model(self):
-        path, _ = QFileDialog.getOpenFileName(self, "选择手部检测模型", str(ROOT / "models"), "YOLO 模型 (*.pt *.onnx)")
+    def select_model_preset(self, index):
+        path = self.model_preset.itemData(index)
         if path:
+            self.model_path.setText(path)
+            self.confidence.setValue(0.4 if index == 0 else 0.55)
+        hints = (
+            "针对戴手套的手，建议置信度 0.40；首次使用下载约 690 MB，之后离线运行。",
+            "速度快，建议置信度 0.55；普通手模型在白色手套场景可能漏检。",
+            "支持 YOLO .pt / .onnx，或 Grounding DINO 的本地 .json 配置。",
+        )
+        self.model_hint.setText(hints[index])
+
+    def choose_model(self):
+        path, _ = QFileDialog.getOpenFileName(self, "选择手部检测模型", str(ROOT / "models"), "检测模型 (*.pt *.onnx *.json)")
+        if path:
+            self.model_preset.setCurrentIndex(2)
             self.model_path.setText(path)
 
     def detect(self):

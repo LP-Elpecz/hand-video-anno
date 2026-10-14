@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog
 
 from hand_anno.app import MainWindow, create_application
 from hand_anno.core import Project, Shape, write_image
+from hand_anno.detector import DEFAULT_MODEL, GLOVED_MODEL
 
 
 @pytest.fixture(scope="module")
@@ -53,6 +54,19 @@ def test_gui_range_deletion_label_and_undo(window):
     assert len(window.project.frame(2).shapes) == 2
     window.redo()
     assert len(window.project.frame(2).shapes) == 1
+
+
+def test_detection_presets_set_model_and_suggested_threshold(window):
+    assert window.model_path.text() == str(GLOVED_MODEL)
+    assert window.confidence.value() == 0.4
+    window.model_preset.setCurrentIndex(1)
+    assert window.model_path.text() == str(DEFAULT_MODEL)
+    assert window.confidence.value() == 0.55
+    window.model_preset.setCurrentIndex(2)
+    assert window.model_path.text() == str(DEFAULT_MODEL)
+    window.model_preset.setCurrentIndex(0)
+    assert window.model_path.text() == str(GLOVED_MODEL)
+    assert window.confidence.value() == 0.4
 
 
 def test_gui_reference_preview_navigation_and_delete(window):

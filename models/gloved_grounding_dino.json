@@ -1,0 +1,7 @@
+{
+  "backend": "grounding_dino",
+  "model_directory": "grounding-dino-tiny",
+  "prompt": "gloved hand.",
+  "text_threshold": 0.2,
+  "nms_threshold": 0.5
+}

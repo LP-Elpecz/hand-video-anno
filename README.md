@@ -4,7 +4,7 @@
 
 ## 启动
 
-本机 `common` Conda 环境已配置好依赖和 CUDA，默认手部模型也已下载。双击 **启动.bat**，或执行：
+本机 `common` Conda 环境已配置好依赖和 CUDA，戴手套模型及普通手模型均已下载。双击 **启动.bat**，或执行：
 
 ```powershell
 conda activate common
@@ -28,6 +28,7 @@ python main.py "D:/抽帧图片" --folder-fps 5
 ```powershell
 conda run -n common python -m pip install -r requirements.txt
 conda run -n common python tools/download_model.py
+conda run -n common python tools/download_gloved_model.py
 conda run -n common python main.py
 ```
 
@@ -38,7 +39,7 @@ conda run -n common python main.py
 1. **打开素材**：支持 MP4、AVI、WebM、MOV、MKV 等 OpenCV 可解码视频；图片目录支持 JPG、PNG、BMP、WebP、TIFF，使用自然数字排序。图片同名 JSON 会自动导入，支持两点或四点 rectangle；输出统一四点。其他形状会明确报错，避免静默丢失。
 2. **设置时间范围**：输入秒数，或用 I / O 把当前帧设为起止点；Shift + 左键拖动时间轴也能选段，并实时预览鼠标位置附近的抽帧画面。普通左键拖动可连续预览，不改变所选范围；拖动时暂停播放，松开后停留在对应帧。后续检测、删除、赋动作使用该范围。批量编辑包含起止时间；精度为毫秒。
 3. **设置抽帧计划**：全局默认 5 FPS；选择时间范围后输入独立 FPS 并加入计划。分段使用 `[起点, 终点)`，互相不能重叠；剩余时间使用默认频率。大于源 FPS 时按源帧上限处理。调整计划不清除已有标注，但导出只包含当前计划中的帧。
-4. **模型打标**：默认 YOLOv8n 手部模型，960 推理尺寸、0.55 置信度，自动优先 GPU。只检测当前范围中未检测 / 编辑的抽帧；重新检测需要勾选覆盖已有标注。整个检测完成后统一应用，取消或失败不应用部分结果。模型检测可撤销。
+4. **模型打标**：默认“戴手套 · Grounding DINO”，使用 `gloved hand.` 提示词、0.40 置信度，自动优先 GPU；也可切换“通用手 · YOLO（快速）”（960 推理尺寸、0.55 置信度）。选择预设会同时切换模型和建议阈值。只检测当前范围中未检测 / 编辑的抽帧；重新检测需要勾选覆盖已有标注。整个检测完成后统一应用，取消或失败不应用部分结果。模型检测可撤销。
 5. **剔除无关手**：相对位置模式在有多个框时删除最左或最右的一只；只有一只时按可调分界线判断。画面分区模式删除分界线一侧的所有框。两种模式都按画面坐标判断，和操作者生理左右无关。
 6. **参考手跟踪**：点选手框，设为参考，然后预览。软件从参考帧向前、向后使用 IoU、中心距离、速度预测及尺寸约束匹配。粉色框为匹配目标；歧义或超过允许失联时间会停止该方向。删除或赋标签只作用于匹配到的框，不处理漏检及停止后的帧。允许失联时间按秒计算，分段 FPS 改变时仍一致。低 FPS、大幅运动、交叉或遮挡时需缩短范围、更换参考帧或增加 FPS。
 7. **批量赋动作**：输入动作名，选择范围内全部保留框、画面左 / 右手或参考手跟踪结果。`label` 只写动作名，不拼接左右。初次检测的 `hand` 表示尚未赋动作。也能只修改当前框。
@@ -85,6 +86,22 @@ conda run -n common python main.py
 
 ## 验证与可复用组件
 
+### 戴手套模型
+
+针对 A 工位白色手套视频，当前推荐 [Grounding DINO Tiny](https://huggingface.co/IDEA-Research/grounding-dino-tiny)。它是支持文字提示的通用目标检测模型，本次使用 `gloved hand.`，未在本工位训练；并非专用的动作分类模型。普通手 YOLO 和几款施工 PPE 手套模型在该工位有明显漏检，不能只依据模型卡的其他场景指标选型。
+
+模型配置在 `models/gloved_grounding_dino.json`，权重在 `models/grounding-dino-tiny/`，下载固定版本并校验每个文件的 SHA256。首次缺少模型时会在检测任务中下载约 690 MB，可取消；之后从本地加载，不调用云端推理。置信度建议从 0.40 开始：降低可找回部分弱手框，也更容易误检工具。检测框仍统一为 `hand`，后续动作赋值和导出规则一致。
+
+本机已对 `video_crop2.mp4` 做整段 1 FPS 验证，并保存独立项目、图片和 JSON；对比方法、结果与限制见 [戴手套模型验证记录](docs/gloved_model_validation.md)。边缘截断、遮挡、运动模糊仍需补框与复核。验证未建立逐帧人工真值，不能把检出框数当准确率。
+
+在其他视频上复验（输出目录必须不存在）：
+
+```powershell
+conda run -n common python tools/verify_gloved.py "D:/参考视频.mp4" --fps 1 --output artifacts/gloved_check
+```
+
+脚本独立保存 `.handproj`、四点 rectangle JSON、图片、32 帧预览拼图和 `report.json`，检查保存 / 读取及导出 / 导入一致性，不操作软件的恢复文件。
+
 ```powershell
 conda run -n common python -m pytest -q
 conda run -n common python tools/verify_example.py
@@ -94,7 +111,7 @@ conda run -n common python tools/verify_example.py
 
 本机验证环境：Python 3.12.13、PySide6-Essentials 6.10.2、Ultralytics 8.4.176、PyTorch 2.11.0+cu128、RTX 4090。预训练模型仍可能误检布料或漏掉遮挡手，因此最终动作标注需复查；可调整置信度、手动补框或使用领域微调模型。
 
-复用了 OpenCV 解码 / 图像读写、PySide6 桌面组件、Ultralytics 推理及公开手部权重，按官方 X-AnyLabeling JSON 结构输出。时间段抽帧、批量编辑、跟踪关联、历史和事务导出为本项目实现。
+复用了 OpenCV 解码 / 图像读写、PySide6 桌面组件、Ultralytics 推理及公开手部权重，以及 Transformers 的 Grounding DINO 推理与 torchvision NMS，按官方 X-AnyLabeling JSON 结构输出。时间段抽帧、批量编辑、跟踪关联、历史和事务导出为本项目实现。
 
 - [手部权重来源与模型卡](https://huggingface.co/Bingsu/adetailer)
 - [Ultralytics Python 推理接口](https://docs.ultralytics.com/usage/python/)

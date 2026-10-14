@@ -8,4 +8,6 @@ projects/
 models/*.pt
 models/*.onnx
 models/*.download
+/models/grounding-dino-tiny/
+/weights/
 /示例视频.mp4
